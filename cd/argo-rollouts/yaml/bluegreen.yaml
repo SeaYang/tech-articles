@@ -1,0 +1,45 @@
+# bluegreen.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: rollout-bluegreen-active
+spec:
+  ports: [{port: 80, targetPort: 8080, protocol: TCP}]
+  selector:
+    app: rollout-bluegreen
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rollout-bluegreen-preview
+spec:
+  # selector 与 active 相同！控制器会注入 rollouts-pod-template-hash 精确区分
+  ports: [{port: 80, targetPort: 8080, protocol: TCP}]
+  selector:
+    app: rollout-bluegreen
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: rollout-bluegreen
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: rollout-bluegreen
+  template:
+    metadata:
+      labels:
+        app: rollout-bluegreen
+    spec:
+      containers:
+        - name: rollouts-demo
+          image: hashicorp/http-echo:1.0.0
+          args: ["-listen=:8080", "-text=blue"]
+          ports: [{containerPort: 8080}]
+  strategy:
+    blueGreen:
+      activeService: rollout-bluegreen-active
+      previewService: rollout-bluegreen-preview
+      autoPromotionEnabled: false   # 关键：切流前暂停，人工验证 preview
+      scaleDownDelaySeconds: 120    # 切流后旧 RS 保留 2 分钟，便于快速回切

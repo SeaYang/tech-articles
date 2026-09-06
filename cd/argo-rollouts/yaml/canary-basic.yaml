@@ -1,0 +1,47 @@
+# canary-basic.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: rollouts-demo
+spec:
+  ports:
+    - port: 80
+      targetPort: 8080
+      protocol: TCP
+  selector:
+    app: rollouts-demo
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: rollouts-demo
+spec:
+  replicas: 5
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: rollouts-demo
+  template:
+    metadata:
+      labels:
+        app: rollouts-demo
+    spec:
+      containers:
+        - name: rollouts-demo
+          image: hashicorp/http-echo:1.0.0   # 多架构演示镜像（amd64/arm64），-text 区分版本
+          args:
+            - "-listen=:8080"
+            - "-text=blue"                  # ← 版本标识在这，改它就触发新发布
+          ports:
+            - containerPort: 8080
+  strategy:
+    canary:
+      steps:
+        - setWeight: 20
+        - pause: {}                 # 无限期暂停，等人工确认
+        - setWeight: 40
+        - pause: {duration: 15s}
+        - setWeight: 60
+        - pause: {duration: 15s}
+        - setWeight: 80
+        - pause: {duration: 15s}

@@ -1,6 +1,30 @@
 # Compiled class file
 *.class
 
+# IDE - JetBrains (IntelliJ IDEA / GoLand / PyCharm etc.)
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# IDE - VS Code
+.vscode/
+.history/
+
+# IDE - Eclipse
+.project
+.classpath
+.settings/
+
+# Editor temp files (Vim/Emacs)
+*.swp
+*.swo
+*~
+*.sublime-*
+
+# macOS
+.DS_Store
+
 # Log file
 *.log
 
