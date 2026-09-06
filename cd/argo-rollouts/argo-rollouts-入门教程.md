@@ -25,7 +25,11 @@
   - [4.2 部署与触发更新](#42-部署与触发更新)
   - [4.3 验证 preview 并切流](#43-验证-preview-并切流)
   - [4.4 回滚](#44-回滚)
-- [五、小结](#五小结)
+- [五、Dashboard 可视化操作](#五dashboard-可视化操作)
+  - [5.1 启动与访问](#51-启动与访问)
+  - [5.2 列表页与详情页](#52-列表页与详情页)
+  - [5.3 操作按钮与 kubectl 命令对照](#53-操作按钮与-kubectl-命令对照)
+- [六、小结](#六小结)
 
 ---
 
@@ -718,7 +722,98 @@ kubectl argo rollouts abort rollout-bluegreen
 
 ---
 
-## 五、小结
+## 五、Dashboard 可视化操作
+
+前面所有操作都靠 kubectl 插件命令完成，其实插件还自带一个 Web 控制台，鼠标点就能完成 promote/abort 等操作，观察发布过程也更直观。
+
+### 5.1 启动与访问
+
+```bash
+kubectl argo rollouts dashboard
+# INFO[0000] Argo Rollouts Dashboard is now available at http://localhost:3100/rollouts
+```
+
+命令默认监听 `0.0.0.0:3100`，子路径为 `/rollouts`。两个常用参数：
+
+- `-p/--port`：改端口（默认 3100）
+- `--root-path`：改子路径（默认 rollouts）
+
+几种访问方式按场景选：
+
+| 场景 | 访问方式 |
+|---|---|
+| 在能直连集群的 Mac 本机跑 | 浏览器直接开 `http://localhost:3100/rollouts` |
+| 在 k8s 节点上跑（本文环境） | `http://<节点IP>:3100/rollouts`，替换成节点实际 IP |
+| 远程节点，本机浏览器访问 | `ssh -L 3100:localhost:3100 <user>@<节点IP>` 后开 `http://localhost:3100/rollouts` |
+
+```bash
+# 本文：在节点上启动后，从 Mac 浏览器访问
+kubectl argo rollouts dashboard
+# INFO[0000] Argo Rollouts Dashboard is now available at http://localhost:3100/rollouts
+# 浏览器打开 http://192.168.x.x:3100/rollouts（换成你的节点 IP）
+```
+
+> 两个注意点：
+>
+> 1. **它不是集群里的服务，而是插件进程**：dashboard 跑在你执行命令的那台机器上，用当前 kubeconfig 的凭证去查/改 Rollout 对象（Ctrl-C 退出即关停）。它不部署任何东西到集群里，安全边界等同于你手里的 kubeconfig，别在不信任的机器上跑。
+> 2. **节点防火墙**：从 Mac 访问节点 IP 的 3100 端口，需确保节点防火墙（如 ufw/iptables）放行该端口，且 3100 不会暴露到公网。
+
+### 5.2 列表页与详情页
+
+打开后默认是 Rollout 列表页（顶部可切 namespace，只显示有 Rollout 的 namespace）：
+
+- **列表页**：每行一个 Rollout，展示名称、策略（Canary/BlueGreen）、Stable/Canary/Preview 各 revision 的副本状态、状态与消息；行尾有 RESTART 和 PROMOTE 快捷按钮
+- **详情页**：点击名称进入，和 `kubectl argo rollouts get rollout xxx --watch` 的树状图同源，但信息更全且自动刷新
+
+详情页主要看这几块（对应 `--watch` 树状图各元素的可视化版本）：
+
+| 区块 | 内容 |
+|---|---|
+| 左侧 Info | 状态/消息、策略、当前 Step（如 1/8）、SetWeight/ActualWeight、镜像列表（含 stable/canary 标签） |
+| Steps（金丝雀） | 每个 step 一张卡片：已完成打勾、当前高亮、未开始置灰；`pause` 无 duration 的会显示持续等待 |
+| Containers | 容器名 + 当前镜像；点铅笔图标可直接改镜像（等价 `kubectl argo rollouts set image`），改完 SAVE 触发新 revision |
+| Revisions | 每个 revision 一张卡片，展开看 ReplicaSet/Pod 状态；**非当前 revision 右上有 ROLLBACK 按钮**（等价 `kubectl argo rollouts undo`） |
+
+列表页：
+
+<!-- TODO: 截图 dashboard 列表页，替换此占位 -->
+
+![dashboard 列表页](./images/dashboard-list.png)
+
+金丝雀 Paused 时的详情页，左侧 Info + Steps + 操作按钮：
+
+<!-- TODO: 截图金丝雀 Paused 详情页，替换此占位 -->
+
+![金丝雀 Paused 详情页](./images/dashboard-canary-paused.png)
+
+蓝绿 preview 就绪后的详情页，两个 Service 对应两套 Pod：
+
+![蓝绿详情页](./images/dashboard-bluegreen-preview.png)
+
+### 5.3 操作按钮与 kubectl 命令对照
+
+详情页右上角一排操作按钮，每个点击后都有二次确认弹窗。它们和 kubectl 命令的对应关系（v1.5.1 共 5 个）：
+
+| 按钮 | 等价命令 | 何时可用 | 作用 |
+|---|---|---|---|
+| RESTART | `kubectl argo rollouts restart` | 任意时刻 | 滚动重启所有 Pod（打 restartedAt 注解） |
+| RETRY | `kubectl argo rollouts retry` | 仅 Degraded 时 | 清除 Degraded 状态重试当前 revision |
+| ABORT | `kubectl argo rollouts abort` | 仅 Progressing/Paused 时 | 中止本次发布，切回 stable（见 3.5/4.4） |
+| PROMOTE | `kubectl argo rollouts promote` | 仅 Progressing/Paused 时 | 跳过当前 pause/analysis step，进入下一步（见 3.4） |
+| PROMOTE-FULL | `kubectl argo rollouts promote --full` | 仅 Progressing/Paused 时 | 跳过剩余所有 steps，宜接全量 |
+
+> 按钮**不是随时都能点**：前端按 Rollout 状态动态置灰。比如 Healthy 稳态时 ABORT/PROMOTE 都是灰的（没有进行中的发布可操作）；Paused 时 PROMOTE/PROMOTE-FULL/ABORT 亮起——想在页面上体验 3.4/3.5 的晋级/中止流程，先 patch 触发一次更新让 Rollout 进入 Paused 即可。
+
+配合前面章节的实战，页面上可以这样玩：
+
+1. patch 触发 yellow 版发布 → 详情页 Steps 卡片逐个亮起，到 `pause {}` 停住
+2. 点 PROMOTE → 跳到下一个 step，后续 15s pause 自动推进
+3. 再 patch 一个 red 版，Paused 时点 ABORT → 状态变 Degraded，Revisions 里 canary 卡片缩容为 0
+4. 非当前 revision 点 ROLLBACK / 或改回 spec，观察状态恢复 Healthy
+
+---
+
+## 六、小结
 
 - **Rollout 是 Deployment 的超集替代**：selector + template 同构，迁移成本低；
 - **金丝雀**：`setWeight` + `pause` 编排渐进放量，无 trafficRouting 时比例靠副本数近似（5 副本 → 20% 粒度）；
